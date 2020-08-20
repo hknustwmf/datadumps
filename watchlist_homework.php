@@ -92,7 +92,7 @@ class DumpWatchlist extends Maintenance {
 			}
 			else
 			{
-				// Agregate the counts
+				// Aggregate the counts
 				$last_row[0] = $last_row[0] + $data[2];
 			}
 			$n++;
