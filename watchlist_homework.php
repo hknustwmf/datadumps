@@ -76,9 +76,10 @@ class DumpWatchlist extends Maintenance {
 		$last_row = null;
 
 		$this->output( "Aggregating...\n" );
-		$n=1;
+		$num_aggregated=0;
 		while ($data = fgetcsv($fp_in, 0, "\t"))
 		{
+			$num_aggregated++;
 			$ns_title = $data[1] . "::" . $data[0];
 			if ($ns_title != $last_key)
 			{
@@ -95,13 +96,12 @@ class DumpWatchlist extends Maintenance {
 				// Aggregate the counts
 				$last_row[0] = $last_row[0] + $data[2];
 			}
-			$n++;
 			if ($n % CHUNK_SIZE == 0) {
-				$this->output( "Aggregated ${n} rows...\n" );
+				$this->output( "Aggregated ${num_aggregated} rows...\n" );
 			}
 		}
 		if ($last_row) {
-			$this->output( "Aggregated ${n} rows...\n" );
+			$this->output( "Aggregated ${num_aggregated} rows...\n" );
 			fputcsv($fp_out, $last_row, "\t");
 		}
 		fclose($fp_in);
