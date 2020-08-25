@@ -17,10 +17,9 @@ require_once dirname(__FILE__) . '/btree.php';
 
 define("CHUNK_SIZE", 100000);
 
-ini_set("auto_detect_line_endings", true);
 
 /**
- * Maintenance script to write the watch list to disk
+ * Maintenance script to write the watchlist to disk and create watcher counts for each page on the list.
  *
  * @ingroup Maintenance
  */

@@ -1,5 +1,7 @@
 <?php
-/* Blatantly borrorwed from https://github.com/jakubkulhan/btree */
+
+/* Blatantly borrowed from https://github.com/jakubkulhan/btree */
+
 final class btree
 {
     /**
