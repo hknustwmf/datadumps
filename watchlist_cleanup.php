@@ -4,14 +4,15 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionLookup;
 
 $stagingDir = '/srv/mediawiki-staging/php-1.36.0-wmf.5';
-$outFile = '/tmp/output.tsv';  // Write to tmp since it runs as php user
-$sortedFile = '/tmp/sorted.tsv';  // Write to tmp since it runs as php user
-$aggregateFile = '/tmp/aggregate.tsv';  // Write to tmp since it runs as php user
-
 $path = set_include_path ( $stagingDir );
-
 require_once $stagingDir . '/maintenance/Maintenance.php';
 
+$pageFile = '/tmp/pages.tsv';
+$sortedPagesFile = '/tmp/sorted_pages.tsv';
+$watchlistFile = '/tmp/watchlist.tsv';
+$sortedWatchlistFile = '/tmp/sorted_watchlist.tsv';
+$aggregateFile = '/tmp/aggregated_watchlist.tsv';
+$finalFile = '/tmp/output.tsv';
 
 /**
  * Maintenance script to write the watch list to disk
@@ -25,11 +26,14 @@ class CleanupWatchlist extends Maintenance {
 	}
 
 	public function execute() {
-		global $outFile, $sortedFile, $aggregateFile;
+		global $pageFile, $sortedPagesFile, $watchlistFile, $sortedWatchlistFile, $aggregateFile;
 
-		unlink($outFile);
-		unlink($sortedFile);
+		unlink($pageFile);
+		unlink($sortedPagesFile);
+		unlink($watchlistFile);
+		unlink($sortedWatchlistFile);
 		unlink($aggregateFile);
+		unlink($finalFile);
 
 		$this->output( "Done!\n" );
 	}

@@ -4,19 +4,18 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionLookup;
 
 $stagingDir = '/srv/mediawiki-staging/php-1.36.0-wmf.5';
-$outFile = '/tmp/output.tsv';  // Write to tmp since it runs as php user
-$sortedFile = '/tmp/sorted.tsv';  // Write to tmp since it runs as php user
-$aggregateFile = '/tmp/aggregate.tsv';  // Write to tmp since it runs as php user
-$pageCacheFile = '/tmp/pages.tree'; // Write to tmp since it runs as php user
-
 $path = set_include_path ( $stagingDir );
-
 require_once $stagingDir . '/maintenance/Maintenance.php';
-require_once dirname(__FILE__) . '/btree.php';
 
+// Write all output to /tmp since the script runs as www-data
+$pageFile = '/tmp/pages.tsv';
+$sortedPagesFile = '/tmp/sorted_pages.tsv';
+$watchlistFile = '/tmp/watchlist.tsv';
+$sortedWatchlistFile = '/tmp/sorted_watchlist.tsv';
+$aggregateFile = '/tmp/aggregated_watchlist.tsv';
+$finalFile = '/tmp/output.tsv';
 
 define("CHUNK_SIZE", 100000);
-
 
 /**
  * Maintenance script to write the watchlist to disk and create watcher counts for each page on the list.
@@ -29,7 +28,7 @@ class DumpWatchlist extends Maintenance {
 		$this->addDescription( 'Retrieve all watchlist records and write to disk in a sorted format.' );
 	}
 
-	private function dump_pages($btree) {
+	private function dump_pages($file_out) {
 		$start_idx = 1;
 		$finished = false;
 		$num_processed = 0;
@@ -44,7 +43,7 @@ class DumpWatchlist extends Maintenance {
 			$this->output( "." );
 			$conds = [ 'page_id >= ' . $start_idx, 'page_id < ' . $end_idx ];
 			$result = $dbw->select( 'page',
-				[ 'page_title', 'page_namespace', 'page_is_redirect' ],
+				[ 'page_title', 'page_namespace' ],
 				$conds,
 				__METHOD__,
 				$opts
@@ -54,17 +53,18 @@ class DumpWatchlist extends Maintenance {
 
 			if (!$finished)
 			{
+				$fp_out = fopen($file_out, 'a');
 				foreach ( $result as $row )
 				{
-					$key = $row->page_namespace . "::" . $row->page_title;
-
-					$btree->set($key, $row->page_is_redirect);
+					// Row format: title, ns
+					fputcsv($fp_out, [$row->page_title, $row->page_namespace], "\t", "\"");
 					$num_processed++;
 				}
+				fclose($fp_out);
 				$start_idx += CHUNK_SIZE;
 			}
 		}
-		$this->output( "\nProcessed $num_processed page records.\n" );
+		$this->output( "\nProcessed ${num_processed} page records.\n" );
 	}
 
 	private function dump_watchlist($file_out) {
@@ -103,17 +103,22 @@ class DumpWatchlist extends Maintenance {
 				$start_idx += CHUNK_SIZE;
 			}
 		}
-		$this->output( "\nProcessed $num_processed watchlist records.\n" );
+		$this->output( "\nProcessed ${num_processed} watchlist records.\n" );
 	}
 
 	private function sort($file_in, $file_out) {
 		$cmd = "sort -o ${file_out} ${file_in}";
-		// $this->output( "Running '${cmd}'...\n" );
-		$this->output( "Sorting...\n" );
+		$this->output( "Running '${cmd}'...\n" );
 		shell_exec($cmd);
 	}
 
-	private function aggregate($file_in, $file_out, $btree) {
+	private function merge($file1_in, $file2_in, $file_out) {
+		$cmd = "awk -F'\t' 'NR==FNR { a[$1 $2]=1 ; } NR>FNR { if ( $1 $2 in a ) print $3,$1,$2 }' OFS='\t' ${file1_in} ${file2_in} > ${file_out}";
+		$this->output( "Running '${cmd}'...\n" );
+		shell_exec($cmd);
+	}
+
+	private function aggregate($file_in, $file_out) {
 		$fp_in = fopen($file_in, "r");
 		$fp_out = fopen($file_out, "w");
 		$last_key = "";
@@ -121,7 +126,6 @@ class DumpWatchlist extends Maintenance {
 
 		$this->output( "Aggregating" );
 		$num_aggregated=0;
-		$num_non_existent=0;
 		while (!feof($fp_in))
 		{
 			$line = fgets($fp_in);
@@ -129,9 +133,6 @@ class DumpWatchlist extends Maintenance {
 			if ($line != "") {
 				$num_aggregated++;
 				$ns_title = $data[1] . "::" . $data[0];	// NS + title
-				if ($btree->get($ns_title) == null) {
-					$num_non_existent++;
-				}
 
 				if ($ns_title != $last_key)
 				{
@@ -140,13 +141,13 @@ class DumpWatchlist extends Maintenance {
 					}
 					$last_key = $ns_title;
 
-					// Row format: count, title, ns
-					$last_row = [ $data[2], $data[0], $data[1] ];
+					// Row format: title, ns, count
+					$last_row = [ $data[0], $data[1], $data[2] ];
 				}
 				else
 				{
 					// Aggregate the counts
-					$last_row[0] = $last_row[0] + $data[2];
+					$last_row[2] = $last_row[2] + $data[2];
 				}
 				if ($num_aggregated % CHUNK_SIZE == 0) {
 					$this->output( "." );
@@ -154,13 +155,7 @@ class DumpWatchlist extends Maintenance {
 			}
 		}
 		if ($last_row) {
-			if ($num_aggregated > 0) {
-				$perc_bad = round(floatval($num_non_existent) * 100.0/floatval($num_aggregated), 2);
-			}
-			else {
-				$perc_bad = 0.0;
-			}
-			$this->output( "\nAggregated ${num_aggregated} rows. ${num_non_existent} (${perc_bad}%) non-existing titles found.\n" );
+			$this->output( "\nAggregated ${num_aggregated} rows.\n" );
 			fputcsv($fp_out, $last_row, "\t");
 		}
 		fclose($fp_in);
@@ -168,38 +163,33 @@ class DumpWatchlist extends Maintenance {
 	}
 
 	public function execute() {
-		global $outFile, $sortedFile, $aggregateFile, $pageCacheFile;
+		global $watchlistFile, $sortedWatchlistFile, $aggregateFile, $pageFile, $sortedPagesFile, $finalFile;
 
 		$starttime = microtime(true);
 
-		unlink($outFile);
-		unlink($sortedFile);
+		unlink($watchlistFile);
+		unlink($sortedWatchlistFile);
 		unlink($aggregateFile);
-		unlink($pageCacheFile);
+		unlink($pageFile);
 
-		// open B+Tree; file does not have to exist
-		$btree = btree::open($pageCacheFile);
-		// btree::open() returns false if anything goes wrong
-		if ($btree === FALSE) die('cannot open');
+		$this->dump_pages($pageFile);
+		$this->sort($pageFile, $sortedPagesFile);
+		unlink($pageFile); // Get rid of original
 
-		$this->dump_pages($btree);
+		$this->dump_watchlist($watchlistFile);
+		$this->sort($watchlistFile, $sortedWatchlistFile);
+		unlink($watchlistFile); // Get rid of original
 
-		$this->dump_watchlist($outFile);
+		$this->aggregate($sortedPagesFile, $aggregateFile);
 
-		$this->sort($outFile, $sortedFile);
-
-		// Get rid of original
-		unlink($outFile);
-
-		$this->aggregate($sortedFile, $aggregateFile, $btree);
-
-		// Get rid of sorted as well as page cache
-		unlink($sortedFile);
-		unlink($pageCacheFile);
+		$this->merge($sortedWatchlistFile, $aggregateFile, $finalFile);
+		// Get rid of sorted files
+		unlink($sortedWatchlistFile);
+		unlink($sortedPagesFile);
+		unlink($aggregateFile);
 
 		$endtime = microtime(true);
 		$time_elapsed = round($endtime - $starttime, 2);
-		$btree = null; // Trigger destructor to close file.
 
 		$this->output( "Done! Finished in ${time_elapsed} seconds.\n" );
 	}
