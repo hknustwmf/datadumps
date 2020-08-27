@@ -107,13 +107,13 @@ class DumpWatchlist extends Maintenance {
 	}
 
 	private function sort($file_in, $file_out) {
-		$cmd = "sort -o ${file_out} ${file_in}";
+		$cmd = "sort --parallel=1 -o ${file_out} ${file_in}";
 		$this->output( "Running '${cmd}'...\n" );
 		shell_exec($cmd);
 	}
 
 	private function merge($file1_in, $file2_in, $file_out) {
-		$cmd = "awk -F'\t' 'NR==FNR { a[$1 $2]=1 ; } NR>FNR { if ( $1 $2 in a ) print $3,$1,$2 }' OFS='\t' ${file1_in} ${file2_in} > ${file_out}";
+		$cmd = "awk -F'\\t' 'NR==FNR { a[$1 $2]=1 ; } NR>FNR { if ( $1 $2 in a ) print $3,$1,$2 }' OFS='\\t' ${file1_in} ${file2_in} > ${file_out}";
 		$this->output( "Running '${cmd}'...\n" );
 		shell_exec($cmd);
 	}
@@ -183,7 +183,8 @@ class DumpWatchlist extends Maintenance {
 		$this->aggregate($sortedPagesFile, $aggregateFile);
 
 		$this->merge($sortedWatchlistFile, $aggregateFile, $finalFile);
-		// Get rid of sorted files
+
+		// Get rid of intermediate files
 		unlink($sortedWatchlistFile);
 		unlink($sortedPagesFile);
 		unlink($aggregateFile);
